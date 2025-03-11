@@ -121,7 +121,6 @@ impl Pty {
             cmd.env(env.0, env.1);
         }
 
-        dbg!(&cmd);
         let (tx_read, rx_read) = unbounded();
 
         let mut child = pair.slave.spawn_command(cmd)?;
@@ -146,16 +145,14 @@ impl Pty {
             let mut buf = [0; 512];
             loop {
                 let n = reader.read(&mut buf).expect("failed to read data");
+                dbg!("read n", n);
                 if n == 0 {
                     // the pty has already exited
                     // so no need to send the end message?
                     break;
                 };
-                tx_read
-                    .send(Message::Data(
-                        String::from_utf8(buf[0..n].to_vec()).expect("data is not valid utf8"),
-                    ))
-                    .ok(); // the sender closed (the program finished ?);
+                let d = String::from_utf8(buf[0..n].to_vec()).expect("data is not valid utf8");
+                tx_read.send(Message::Data(d)).ok(); // the sender closed (the program finished ?);
             }
         });
 
