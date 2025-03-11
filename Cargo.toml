@@ -1,0 +1,7 @@
+[package]
+name = "ptybug"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+portable-pty = "0.9.0"
