@@ -110,8 +110,7 @@ impl Pty {
         dbg!("a pair");
 
         let mut cmd = CommandBuilder::new(command.cmd);
-        // https://github.com/wez/wezterm/issues/4205
-        cmd.env("PATH", std::env::var("PATH")?);
+        dbg!("az");
         cmd.args(&command.args);
         match command.cwd {
             Some(cwd) => cmd.cwd(cwd),
