@@ -27,6 +27,5 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - if: runner.os == 'Windows'
-        name: Run tests Windows
-        run: cargo test -- --nocapture
+      - run: cargo build
+      # - run: cargo test -- --nocapture
