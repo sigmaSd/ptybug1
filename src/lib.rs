@@ -198,8 +198,8 @@ mod tests {
     fn it_works() {
         dbg!("here");
         let pty = Pty::create(Command {
-            cmd: "deno".into(),
-            args: vec!["repl".into()],
+            cmd: "cmd".into(),
+            args: vec!["/c".into(), "deno".into(), "repl".into()],
             env: vec![("NO_COLOR".into(), "1".into())],
             cwd: None,
         })

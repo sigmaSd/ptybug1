@@ -32,4 +32,4 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       # - run: cargo build
-      - run: cargo test -- --nocapture
+      - run: timeout 600 cargo test -- --nocapture
