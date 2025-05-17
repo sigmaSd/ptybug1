@@ -10,7 +10,6 @@ pub struct Pty {
     // keep the slave alive
     // so windows works
     // https://github.com/wez/wezterm/issues/4206
-    _slave: Box<dyn SlavePty + Send>,
 }
 
 #[derive(Clone)]
@@ -109,7 +108,6 @@ impl Pty {
 
         Ok(Self {
             reader: PtyReader::new(rx_read),
-            _slave: pair.slave,
         })
     }
 
@@ -124,7 +122,6 @@ mod tests {
     use super::*;
     #[test]
     fn it_works() {
-        dbg!("here");
         let pty = Pty::create(Command {
             cmd: "deno".into(),
             args: vec!["repl".into()],
@@ -132,16 +129,8 @@ mod tests {
             cwd: None,
         })
         .unwrap();
-        dbg!("after");
-
-        dbg!(pty.read().unwrap());
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        dbg!(pty.read().unwrap());
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        dbg!(pty.read().unwrap());
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        dbg!(pty.read().unwrap());
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        dbg!(pty.read().unwrap());
+        loop {
+            dbg!(pty.read().unwrap());
+        }
     }
 }
