@@ -29,43 +29,44 @@ impl PtyReader {
     }
     //NOTE: this function should not block
     fn read(&self) -> Result<Message> {
-        if self.done.get() {
-            return Ok(Message::End);
-        }
+        self.rx_read.recv().map_err(|e| e.into())
+        // if self.done.get() {
+        //     return Ok(Message::End);
+        // }
 
-        let mut msgs: Vec<_> = self.rx_read.try_iter().collect();
+        // let mut msgs: Vec<_> = self.rx_read.().collect();
 
-        if msgs.contains(&Message::End) {
-            self.done.set(true);
+        // if msgs.contains(&Message::End) {
+        //     self.done.set(true);
 
-            // NOTE: We received the END message, this means that the process has exited
-            // But there could be some pending messages in the read channel, this is especisally true in windows
-            // So sleep a bit and check the channel again
-            std::thread::sleep(Duration::from_millis(100));
-            msgs.extend(self.rx_read.try_iter());
+        //     // NOTE: We received the END message, this means that the process has exited
+        //     // But there could be some pending messages in the read channel, this is especisally true in windows
+        //     // So sleep a bit and check the channel again
+        //     std::thread::sleep(Duration::from_millis(100));
+        //     msgs.extend(self.rx_read.try_iter());
 
-            if msgs.len() == 1 {
-                return Ok(Message::End);
-            }
+        //     if msgs.len() == 1 {
+        //         return Ok(Message::End);
+        //     }
 
-            // we might have some msgs here
-            // we should send them to the user
-            msgs.retain(|msg| !matches!(msg, Message::End));
-        }
+        //     // we might have some msgs here
+        //     // we should send them to the user
+        //     msgs.retain(|msg| !matches!(msg, Message::End));
+        // }
 
-        let msg = msgs
-            .iter()
-            .map(|msg| {
-                if let Message::Data(data) = msg {
-                    data.as_str()
-                } else {
-                    unreachable!()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("");
+        // let msg = msgs
+        //     .iter()
+        //     .map(|msg| {
+        //         if let Message::Data(data) = msg {
+        //             data.as_str()
+        //         } else {
+        //             unreachable!()
+        //         }
+        //     })
+        //     .collect::<Vec<_>>()
+        //     .join("");
 
-        Ok(Message::Data(msg))
+        // Ok(Message::Data(msg))
     }
 }
 
