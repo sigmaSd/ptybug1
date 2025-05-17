@@ -33,8 +33,17 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       # - run: cargo build
-      - name: Run cargo test with 10 minute timeout
-        uses: jakejarvis/cargo-test-timeout@v1
-        with:
-          minutes: 10
-          args: -- --nocapture
+      - name: Run cargo test with timeout (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: timeout 600 cargo test -- --nocapture
+
+      - name: Run cargo test with timeout (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $p = Start-Process cargo -ArgumentList 'test -- --nocapture' -PassThru
+          if (-not $p.WaitForExit(600000)) { # 600000 ms = 10 min
+            Write-Host "Timeout reached, killing process"
+            Stop-Process -Id $p.Id
+            exit 1
+          }
+        shell: pwsh
