@@ -1,7 +1,5 @@
-use crossbeam::channel::{Receiver, unbounded};
 use portable_pty::{CommandBuilder, PtySize, SlavePty, native_pty_system};
-use serde::{Deserialize, Serialize};
-use std::io::Read;
+use std::{io::Read, sync::mpsc::Receiver};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -10,9 +8,9 @@ pub struct Pty {
     // keep the slave alive
     // so windows works
     // https://github.com/wez/wezterm/issues/4206
+    _slave: Box<dyn SlavePty + Send>,
 }
 
-#[derive(Clone)]
 struct PtyReader {
     rx_read: Receiver<Message>,
 }
@@ -26,7 +24,6 @@ impl PtyReader {
     }
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct Command {
     cmd: String,
     args: Vec<String>,
@@ -72,7 +69,7 @@ impl Pty {
             cmd.env(env.0, env.1);
         }
 
-        let (tx_read, rx_read) = unbounded();
+        let (tx_read, rx_read) = std::sync::mpsc::channel();
 
         let mut child = pair.slave.spawn_command(cmd)?;
         dbg!("after spawn command");
@@ -108,6 +105,7 @@ impl Pty {
 
         Ok(Self {
             reader: PtyReader::new(rx_read),
+            _slave: pair.slave,
         })
     }
 
