@@ -1,72 +1,29 @@
-use crossbeam::channel::{Receiver, Sender, unbounded};
-use portable_pty::{CommandBuilder, MasterPty, PtySize, SlavePty, native_pty_system};
+use crossbeam::channel::{Receiver, unbounded};
+use portable_pty::{CommandBuilder, PtySize, SlavePty, native_pty_system};
 use serde::{Deserialize, Serialize};
-use std::{cell::Cell, io::Read, time::Duration};
+use std::io::Read;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub struct Pty {
     reader: PtyReader,
-    tx_write: Sender<String>,
     // keep the slave alive
     // so windows works
     // https://github.com/wez/wezterm/issues/4206
     _slave: Box<dyn SlavePty + Send>,
-    master: Box<dyn MasterPty + Send>,
 }
 
 #[derive(Clone)]
 struct PtyReader {
     rx_read: Receiver<Message>,
-    done: Cell<bool>,
 }
 impl PtyReader {
     fn new(rx_read: Receiver<Message>) -> PtyReader {
-        Self {
-            rx_read,
-            done: Cell::new(false),
-        }
+        Self { rx_read }
     }
     //NOTE: this function should not block
     fn read(&self) -> Result<Message> {
         self.rx_read.recv().map_err(|e| e.into())
-        // if self.done.get() {
-        //     return Ok(Message::End);
-        // }
-
-        // let mut msgs: Vec<_> = self.rx_read.().collect();
-
-        // if msgs.contains(&Message::End) {
-        //     self.done.set(true);
-
-        //     // NOTE: We received the END message, this means that the process has exited
-        //     // But there could be some pending messages in the read channel, this is especisally true in windows
-        //     // So sleep a bit and check the channel again
-        //     std::thread::sleep(Duration::from_millis(100));
-        //     msgs.extend(self.rx_read.try_iter());
-
-        //     if msgs.len() == 1 {
-        //         return Ok(Message::End);
-        //     }
-
-        //     // we might have some msgs here
-        //     // we should send them to the user
-        //     msgs.retain(|msg| !matches!(msg, Message::End));
-        // }
-
-        // let msg = msgs
-        //     .iter()
-        //     .map(|msg| {
-        //         if let Message::Data(data) = msg {
-        //             data.as_str()
-        //         } else {
-        //             unreachable!()
-        //         }
-        //     })
-        //     .collect::<Vec<_>>()
-        //     .join("");
-
-        // Ok(Message::Data(msg))
     }
 }
 
@@ -150,43 +107,14 @@ impl Pty {
             }
         });
 
-        let mut writer = pair.master.take_writer()?;
-        let (tx_write, rx_write): (Sender<String>, _) = unbounded();
-        std::thread::spawn(move || {
-            while let Ok(buf) = rx_write.recv() {
-                writer
-                    .write_all(&buf.into_bytes())
-                    .expect("failed to write data");
-            }
-        });
-
         Ok(Self {
             reader: PtyReader::new(rx_read),
-            tx_write,
             _slave: pair.slave,
-            master: pair.master,
         })
-    }
-
-    #[allow(dead_code)]
-    fn clone_reader(&self) -> PtyReader {
-        self.reader.clone()
     }
 
     pub fn read(&self) -> Result<Message> {
         self.reader.read()
-    }
-
-    pub fn write(&self, data: String) -> Result<()> {
-        Ok(self.tx_write.send(data)?)
-    }
-
-    pub fn resize(&self, size: PtySize) -> Result<()> {
-        self.master.resize(size).map_err(Into::into)
-    }
-
-    pub fn get_size(&self) -> Result<PtySize> {
-        self.master.get_size().map_err(Into::into)
     }
 }
 
@@ -198,15 +126,14 @@ mod tests {
     fn it_works() {
         dbg!("here");
         let pty = Pty::create(Command {
-            cmd: "cmd".into(),
-            args: vec!["/c".into(), "deno".into(), "repl".into()],
+            cmd: "deno".into(),
+            args: vec!["repl".into()],
             env: vec![("NO_COLOR".into(), "1".into())],
             cwd: None,
         })
         .unwrap();
         dbg!("after");
 
-        // read header
         dbg!(pty.read().unwrap());
         std::thread::sleep(std::time::Duration::from_millis(500));
         dbg!(pty.read().unwrap());
@@ -216,33 +143,5 @@ mod tests {
         dbg!(pty.read().unwrap());
         std::thread::sleep(std::time::Duration::from_millis(500));
         dbg!(pty.read().unwrap());
-
-        // test size, resize
-        assert!(matches!(
-            pty.get_size(),
-            Ok(PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-        ));
-
-        pty.resize(PtySize {
-            rows: 50,
-            cols: 120,
-            pixel_width: 1,
-            pixel_height: 1,
-        })
-        .unwrap();
-        assert!(matches!(
-            pty.get_size(),
-            Ok(PtySize {
-                rows: 50,
-                cols: 120,
-                pixel_width: 1,
-                pixel_height: 1,
-            })
-        ));
     }
 }
