@@ -1,11 +1,7 @@
 use crossbeam::channel::{Receiver, Sender, unbounded};
-use portable_pty::{
-    ChildKiller as Ck, CommandBuilder, MasterPty, PtySize, SlavePty, native_pty_system,
-};
-use serde::de::DeserializeOwned;
+use portable_pty::{CommandBuilder, MasterPty, PtySize, SlavePty, native_pty_system};
 use serde::{Deserialize, Serialize};
-use std::os::raw::c_char;
-use std::{cell::Cell, ffi::CString, io::Read, mem::ManuallyDrop, time::Duration};
+use std::{cell::Cell, io::Read, time::Duration};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -17,8 +13,6 @@ pub struct Pty {
     // https://github.com/wez/wezterm/issues/4206
     _slave: Box<dyn SlavePty + Send>,
     master: Box<dyn MasterPty + Send>,
-    // use to end the spawned process
-    ck: Box<dyn Ck>,
 }
 
 #[derive(Clone)]
@@ -76,7 +70,7 @@ impl PtyReader {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Command {
+pub struct Command {
     cmd: String,
     args: Vec<String>,
     env: Vec<(String, String)>,
@@ -84,13 +78,13 @@ struct Command {
 }
 
 #[derive(PartialEq, Eq, Debug)]
-enum Message {
+pub enum Message {
     Data(String),
     End,
 }
 
 impl Pty {
-    fn create(command: Command) -> Result<Self> {
+    pub fn create(command: Command) -> Result<Self> {
         // Use the native pty implementation for the system
         let pty_system = native_pty_system();
         dbg!("a pty_system");
@@ -124,8 +118,7 @@ impl Pty {
         let (tx_read, rx_read) = unbounded();
 
         let mut child = pair.slave.spawn_command(cmd)?;
-        let ck = child.clone_killer();
-        dbg!("after clone");
+        dbg!("after spawn command");
 
         // If we do a pty.read after the process exit, read will hang
         // Thats why we spawn another thread to wait for the child
@@ -171,7 +164,6 @@ impl Pty {
             tx_write,
             _slave: pair.slave,
             master: pair.master,
-            ck,
         })
     }
 
@@ -180,177 +172,25 @@ impl Pty {
         self.reader.clone()
     }
 
-    fn read(&self) -> Result<Message> {
+    pub fn read(&self) -> Result<Message> {
         self.reader.read()
     }
 
-    fn write(&self, data: String) -> Result<()> {
+    pub fn write(&self, data: String) -> Result<()> {
         Ok(self.tx_write.send(data)?)
     }
 
-    fn resize(&self, size: PtySize) -> Result<()> {
+    pub fn resize(&self, size: PtySize) -> Result<()> {
         self.master.resize(size).map_err(Into::into)
     }
 
-    fn get_size(&self) -> Result<PtySize> {
+    pub fn get_size(&self) -> Result<PtySize> {
         self.master.get_size().map_err(Into::into)
-    }
-}
-
-// note: need to be careful with names with unsafe(no_mangle) extern C
-// for example extern C write, will cause weird bugs
-
-/// # Safety
-/// - Requires a valid pointer to a Command
-/// - Requires a valid pointer to a buffer of size 8
-/// to write the result to
-///
-/// Returns -1 on error
-#[unsafe(no_mangle)]
-// can't use new since its a reserved keyword in javascript
-pub unsafe extern "C" fn pty_create(command: *mut c_char, result: *mut usize) -> i8 {
-    let pty = (|| -> Result<Box<Pty>> {
-        let command = unsafe { cstr_to_type::<Command>(command) }?;
-        let pty = Pty::create(command)?;
-        Ok(Box::new(pty))
-    })();
-    match pty {
-        Ok(pty) => {
-            unsafe { *result = Box::into_raw(pty) as usize };
-            0
-        }
-        Err(err) => {
-            unsafe { *result = boxed_error_to_cstring(err).into_raw() as _ };
-            -1
-        }
-    }
-}
-
-/// # Safety
-/// - Requires a valid pointer to a Pty
-/// - Requires a valid pointer to a buffer of size 8
-/// to write the result to
-///
-/// Returns -1 on error
-/// Returns 99 on process exit
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pty_read(this: *mut Pty, result: *mut usize) -> i8 {
-    enum R {
-        Data(CString),
-        End,
-    }
-    match (|| -> Result<R> {
-        let this = unsafe { &*this };
-        // TODO: add a test for null byte inside str from read
-        let msg = this.read()?;
-        match msg {
-            Message::Data(data) => Ok(R::Data(CString::new(data.replace('\0', ""))?)),
-            Message::End => Ok(R::End),
-        }
-    })() {
-        Ok(data) => match data {
-            R::Data(str) => {
-                unsafe { *result = str.into_raw() as _ };
-                0
-            }
-            R::End => 99,
-        },
-        Err(err) => {
-            unsafe { *result = boxed_error_to_cstring(err).into_raw() as _ };
-            -1
-        }
-    }
-}
-
-/// # Safety
-/// - Requires a valid pointer to a Pty
-/// - Requires a valid pointer to data encoded as Cstring
-/// - Requires a valid pointer to a buffer of size 8
-/// to write the result to
-///
-/// Returns -1 on error
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pty_write(this: *mut Pty, data: *mut c_char, result: *mut usize) -> i8 {
-    let this = unsafe { &*this };
-    let data = ManuallyDrop::new(unsafe { CString::from_raw(data) });
-    match (|| {
-        let data_str = data.to_str()?.to_owned(); // NOTE: can we send str in the channels ?
-        this.write(data_str)
-    })() {
-        Ok(()) => 0,
-        Err(err) => {
-            unsafe { *result = boxed_error_to_cstring(err).into_raw() as _ };
-            -1
-        }
-    }
-}
-
-/// # Safety
-/// - Requires a valid pointer to a Pty
-/// - Requires a valid pointer to a buffer of size 8
-/// to write the result to
-///
-/// Returns -1 on error
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pty_get_size(this: *mut Pty, result: *mut usize) -> i8 {
-    let this = unsafe { &*this };
-    match (|| -> Result<CString> {
-        let size = this.get_size()?;
-        type_to_cstr(&size)
-    })() {
-        Ok(size) => {
-            unsafe { *result = size.into_raw() as _ };
-            0
-        }
-        Err(err) => {
-            unsafe { *result = boxed_error_to_cstring(err).into_raw() as _ };
-            -1
-        }
-    }
-}
-
-/// # Safety
-/// - Requires a valid pointer to a Pty
-/// - Requires a valid pointer to a PtySize encoded as CString
-/// - Requires a valid pointer to a buffer of size 8
-/// to write the error to
-///
-/// Returns -1 on error
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pty_resize(this: *mut Pty, size: *mut c_char, result: *mut usize) -> i8 {
-    let this = unsafe { &*this };
-    match (|| -> Result<()> {
-        let size = unsafe { cstr_to_type::<PtySize>(size) }?;
-        this.resize(size)?;
-        Ok(())
-    })() {
-        Ok(()) => 0,
-        Err(err) => {
-            unsafe { *result = boxed_error_to_cstring(err).into_raw() as _ };
-            -1
-        }
-    }
-}
-
-/// # Safety
-/// - Requires a valid pointer to a Pty
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pty_close(this: *mut Pty) {
-    // NOTE: Dropping the pty doensn't work on windows and trigger random bugs https://github.com/sigmaSd/deno-pty-ffi/issues/3
-    if cfg!(windows) {
-        let _this = ManuallyDrop::new(unsafe { Box::from_raw(this) });
-        // killing doesn't work https://github.com/wez/wezterm/issues/5107
-        // let _ = this.ck.kill();
-    } else {
-        let mut this = unsafe { Box::from_raw(this) };
-        // NOTE: maybe propage the possible error
-        let _ = this.ck.kill();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
 
     use super::*;
     #[test]
@@ -404,22 +244,4 @@ mod tests {
             })
         ));
     }
-}
-
-/// # Safety
-/// expects
-/// - valid ptr to a T encoded as CString encoding a JSON value
-/// returns a T
-/// This function doens't consume the CString
-pub unsafe fn cstr_to_type<T: DeserializeOwned>(cstr: *mut c_char) -> Result<T> {
-    let cstr = ManuallyDrop::new(unsafe { CString::from_raw(cstr) });
-    Ok(serde_json::from_str(cstr.to_str()?)?)
-}
-
-pub fn type_to_cstr<T: Serialize>(t: &T) -> Result<CString> {
-    Ok(CString::new(serde_json::to_string(&t)?)?)
-}
-
-pub fn boxed_error_to_cstring(err: Box<dyn std::error::Error>) -> CString {
-    CString::new(err.to_string()).expect("failed to create cstring")
 }
