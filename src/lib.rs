@@ -3,6 +3,24 @@ use std::{io::Read, sync::mpsc::Receiver};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+fn command_builder() -> CommandBuilder {
+    if cfg!(windows) {
+        let comspec = std::env::var("COMSPEC");
+        let shell = comspec
+            .as_ref()
+            .map(|v| v.as_str())
+            .unwrap_or_else(|_| "cmd.exe");
+        let mut command = CommandBuilder::new(shell);
+        command.arg("/C");
+
+        command
+    } else {
+        let mut command = CommandBuilder::new("sh");
+        command.arg("-c");
+        command
+    }
+}
+
 pub struct Pty {
     reader: PtyReader,
     // keep the slave alive
@@ -56,7 +74,8 @@ impl Pty {
         })?;
         dbg!("a pair");
 
-        let mut cmd = CommandBuilder::new(command.cmd);
+        let mut cmd = command_builder();
+        cmd.arg(command.cmd);
         // https://github.com/wez/wezterm/issues/4205
         cmd.env("PATH", std::env::var("PATH")?);
         cmd.args(&command.args);
