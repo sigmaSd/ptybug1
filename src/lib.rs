@@ -114,7 +114,11 @@ mod tests {
     #[test]
     fn it_works() {
         let pty = Pty::create(Command {
-            cmd: "cd".into(),
+            cmd: if cfg!(windows) {
+                "cd".into()
+            } else {
+                "pwd".into()
+            },
             args: vec![],
             env: vec![],
             cwd: None,
