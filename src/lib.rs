@@ -1,31 +1,10 @@
-use portable_pty::{CommandBuilder, PtySize, SlavePty, native_pty_system};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::{io::Read, sync::mpsc::Receiver};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-fn command_builder() -> CommandBuilder {
-    if cfg!(windows) {
-        let comspec = std::env::var("COMSPEC");
-        let shell = comspec
-            .as_ref()
-            .map(|v| v.as_str())
-            .unwrap_or_else(|_| "cmd.exe");
-        let mut command = CommandBuilder::new(shell);
-        command.arg("/C");
-
-        command
-    } else {
-        let mut command = CommandBuilder::new("sh");
-        command.arg("-c");
-        command
-    }
-}
-
 pub struct Pty {
     reader: PtyReader,
-    // keep the slave alive
-    // so windows works
-    // https://github.com/wez/wezterm/issues/4206
 }
 
 struct PtyReader {
@@ -64,20 +43,14 @@ impl Pty {
         let pair = pty_system.openpty(PtySize {
             rows: 24,
             cols: 80,
-            // Not all systems support pixel_width, pixel_height,
-            // but it is good practice to set it to something
-            // that matches the size of the selected font.  That
-            // is more complex than can be shown here in this
-            // brief example though!
             pixel_width: 0,
             pixel_height: 0,
         })?;
         dbg!("a pair");
 
-        let mut cmd = command_builder();
-        cmd.arg(command.cmd);
+        let mut cmd = CommandBuilder::new(command.cmd);
         // https://github.com/wez/wezterm/issues/4205
-        // cmd.env("PATH", std::env::var("PATH")?);
+        cmd.env("PATH", std::env::var("PATH")?);
         cmd.args(&command.args);
         match command.cwd {
             Some(cwd) => cmd.cwd(cwd),
@@ -119,6 +92,7 @@ impl Pty {
         // and signal its exit
         std::thread::spawn(move || {
             let _ = child.wait();
+            // drop the master only after the child processe exits, otherwise issues will happen
             drop(pair.master);
             let _ = tx_read_c.send(Message::End);
         });
@@ -140,9 +114,9 @@ mod tests {
     #[test]
     fn it_works() {
         let pty = Pty::create(Command {
-            cmd: "deno".into(),
-            args: vec!["repl".into()],
-            env: vec![("NO_COLOR".into(), "1".into())],
+            cmd: "cd".into(),
+            args: vec![],
+            env: vec![],
             cwd: None,
         })
         .unwrap();
