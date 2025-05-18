@@ -121,7 +121,9 @@ mod tests {
         })
         .unwrap();
         loop {
-            dbg!(pty.read().unwrap());
+            if dbg!(pty.read().unwrap()) == Message::End {
+                break;
+            }
         }
     }
 }
