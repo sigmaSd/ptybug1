@@ -77,7 +77,7 @@ impl Pty {
         let mut cmd = command_builder();
         cmd.arg(command.cmd);
         // https://github.com/wez/wezterm/issues/4205
-        cmd.env("PATH", std::env::var("PATH")?);
+        // cmd.env("PATH", std::env::var("PATH")?);
         cmd.args(&command.args);
         match command.cwd {
             Some(cwd) => cmd.cwd(cwd),
@@ -140,16 +140,14 @@ mod tests {
     #[test]
     fn it_works() {
         let pty = Pty::create(Command {
-            cmd: "cd".into(),
-            args: vec![],
-            env: vec![],
+            cmd: "deno".into(),
+            args: vec!["repl".into()],
+            env: vec![("NO_COLOR".into(), "1".into())],
             cwd: None,
         })
         .unwrap();
         loop {
-            if dbg!(pty.read().unwrap()) == Message::End {
-                break;
-            }
+            dbg!(pty.read().unwrap());
         }
     }
 }
