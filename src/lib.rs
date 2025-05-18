@@ -8,7 +8,6 @@ pub struct Pty {
     // keep the slave alive
     // so windows works
     // https://github.com/wez/wezterm/issues/4206
-    _slave: Box<dyn SlavePty + Send>,
 }
 
 struct PtyReader {
@@ -70,18 +69,11 @@ impl Pty {
         }
 
         let (tx_read, rx_read) = std::sync::mpsc::channel();
+        let tx_read_c = tx_read.clone();
 
         let mut child = pair.slave.spawn_command(cmd)?;
+        drop(pair.slave);
         dbg!("after spawn command");
-
-        // If we do a pty.read after the process exit, read will hang
-        // Thats why we spawn another thread to wait for the child
-        // and signal its exit
-        let tx_read_c = tx_read.clone();
-        std::thread::spawn(move || {
-            let _ = child.wait();
-            let _ = tx_read_c.send(Message::End);
-        });
 
         // Read the output in another thread.
         // This is important because it is easy to encounter a situation
@@ -103,9 +95,17 @@ impl Pty {
             }
         });
 
+        // If we do a pty.read after the process exit, read will hang
+        // Thats why we spawn another thread to wait for the child
+        // and signal its exit
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            drop(pair.master);
+            let _ = tx_read_c.send(Message::End);
+        });
+
         Ok(Self {
             reader: PtyReader::new(rx_read),
-            _slave: pair.slave,
         })
     }
 
