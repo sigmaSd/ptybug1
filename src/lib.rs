@@ -140,14 +140,16 @@ mod tests {
     #[test]
     fn it_works() {
         let pty = Pty::create(Command {
-            cmd: "deno".into(),
-            args: vec!["repl".into()],
-            env: vec![("NO_COLOR".into(), "1".into())],
+            cmd: "cd".into(),
+            args: vec![],
+            env: vec![],
             cwd: None,
         })
         .unwrap();
         loop {
-            dbg!(pty.read().unwrap());
+            if dbg!(pty.read().unwrap()) == Message::End {
+                break;
+            }
         }
     }
 }
